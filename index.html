@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>抽籤</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"><header><h1 id="t">抽籤</h1></header><div id="main"></div></div>
+<script>
+(async()=>{
+const main=document.getElementById('main');
+const h=(t,p={},...k)=>{const e=document.createElement(t);for(const[a,v]of Object.entries(p)){if(a==='class')e.className=v;else if(a.startsWith('on'))e.addEventListener(a.slice(2),v);else if(a in e)e[a]=v;else e.setAttribute(a,v)}e.append(...k.filter(x=>x!=null&&x!==false));return e};
+const rnd=n=>crypto.getRandomValues(new Uint32Array(1))[0]%n;
+
+// 預覽模式（?preview=1）：讀後台暫存；一般模式：讀 data.json
+const preview=location.search.includes('preview');
+let data=null;
+try{
+  const d=preview?localStorage.getItem('lottery-draft'):null;
+  data=d?JSON.parse(d):await (await fetch('data.json?t='+Date.now())).json();
+}catch{}
+if(!data||!Array.isArray(data.slips)){
+  main.append(h('p',{class:'mut'},'讀不到 data.json。請用網址（例如 GitHub Pages）開啟，不要直接雙擊 html 檔。'));
+  return;
+}
+document.title=data.title||'抽籤';
+document.getElementById('t').textContent=data.title||'抽籤';
+
+const cols=['#d9b27a','#c89b5c','#e3c28f','#b98a4e','#d2a468','#c89b5c','#e0bb85'];
+const sticks=cols.map((c,i)=>`<line x1="${70+i*10}" y1="140" x2="${58+i*14}" y2="${34+(i%3)*10}" stroke="${c}" stroke-width="9" stroke-linecap="round"/>`).join('');
+const w=document.createElement('div');
+w.innerHTML=`<svg class="pot" viewBox="0 0 200 250" role="img" aria-label="籤筒"><ellipse cx="100" cy="118" rx="58" ry="12" fill="var(--pot2)"/>${sticks}<path d="M42 118 Q42 124 46 130 L56 226 Q58 242 74 242 L126 242 Q142 242 144 226 L154 130 Q158 124 158 118 Q158 130 100 130 Q42 130 42 118Z" fill="var(--pot)"/><rect x="52" y="160" width="96" height="14" fill="var(--pot2)" opacity=".55"/><rect x="56" y="196" width="88" height="10" fill="var(--pot2)" opacity=".55"/></svg>`;
+const pot=w.firstChild;
+
+const n=data.slips.length,out=h('div',{class:'out'});
+let busy=false;
+const btn=h('button',{class:'btn pri big',disabled:!n,onclick:go},'抽一支籤');
+const calm=matchMedia('(prefers-reduced-motion:reduce)').matches;
+function go(){
+  if(busy||!n)return;busy=true;btn.disabled=true;out.replaceChildren();pot.classList.add('shake');
+  setTimeout(()=>{
+    pot.classList.remove('shake');
+    const s=data.slips[rnd(n)];
+    const sparks=Array.from({length:12},(_,i)=>{const a=i/12*Math.PI*2,d=130+(i%3)*30;return h('i',{class:'spark',style:`--dx:${Math.cos(a)*d}px;--dy:${Math.sin(a)*d*.8}px`})});
+    const card=h('div',{class:'card3d'+(calm?'':' rise')},
+      h('div',{class:'inner'},
+        h('div',{class:'face back'},h('span',{},'籤')),
+        h('div',{class:'face front'},s.img?h('img',{src:s.img,alt:''}):null,s.text?h('p',{class:'stext'},s.text):null)),
+      ...sparks);
+    out.append(card);
+    out.scrollIntoView({behavior:'smooth',block:'nearest'});
+    setTimeout(()=>card.classList.add('flip'),calm?0:750);
+    setTimeout(()=>{card.classList.add('done');btn.textContent='再抽一次';btn.disabled=false;busy=false},calm?100:1750);
+  },calm?200:1100);
+}
+main.append(h('div',{class:'draw'},
+  preview?h('p',{class:'badge'},'預覽模式：這是後台暫存的內容，尚未上傳到網站'):null,
+  h('p',{class:'mut'},n?`籤筒裡有 ${n} 支籤，抽完會放回去`:'籤筒還是空的'),pot,btn,out));
+})();
+</script>
+</body>
+</html>

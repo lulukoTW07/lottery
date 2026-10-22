@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>抽籤後台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+(async()=>{
+const KEY='lottery-draft';
+const app=document.getElementById('app');
+let draft=null,stEl=null,timer=null;
+const h=(t,p={},...k)=>{const e=document.createElement(t);for(const[a,v]of Object.entries(p)){if(a==='class')e.className=v;else if(a.startsWith('on'))e.addEventListener(a.slice(2),v);else if(a in e)e[a]=v;else e.setAttribute(a,v)}e.append(...k.filter(x=>x!=null&&x!==false));return e};
+const toast=m=>{const t=h('div',{class:'toast'},m);document.body.append(t);setTimeout(()=>t.remove(),2600)};
+
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(draft));if(stEl)stEl.textContent='已自動暫存在這個瀏覽器（上線前請先匯出 data.json）'}
+  catch{toast('瀏覽器暫存空間已滿，請先匯出 data.json，並刪減一些圖片')}
+}
+const saveSoon=()=>{clearTimeout(timer);timer=setTimeout(save,500)};
+const readFile=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});
+async function shrink(file){
+  const src=await readFile(file);
+  const i=await new Promise((res,rej)=>{const m=new Image();m.onload=()=>res(m);m.onerror=rej;m.src=src});
+  const r=Math.min(1,600/Math.max(i.width,i.height));
+  const c=document.createElement('canvas');c.width=Math.round(i.width*r);c.height=Math.round(i.height*r);
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(i,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',.8);
+}
+const valid=d=>d&&Array.isArray(d.slips);
+
+function exportJson(){
+  const a=h('a',{href:URL.createObjectURL(new Blob([JSON.stringify(draft,null,1)],{type:'application/json'})),download:'data.json'});
+  document.body.append(a);a.click();a.remove();
+  toast('已下載 data.json，請上傳到 GitHub 覆蓋舊檔');
+}
+async function reloadOnline(e){
+  if(!e.target.dataset.arm){e.target.dataset.arm=1;e.target.textContent='會覆蓋目前暫存，確定？';setTimeout(()=>{delete e.target.dataset.arm;e.target.textContent='從線上 data.json 重新載入'},3000);return}
+  try{const d=await (await fetch('data.json?t='+Date.now())).json();if(!valid(d))throw 0;draft=d;save();render();toast('已載入線上版本')}
+  catch{toast('讀取 data.json 失敗（需在網址上開啟，不能直接雙擊檔案）')}
+}
+function openShare(){
+  const url=new URL('index.html',location.href).href;
+  const local=location.protocol==='file:'||/^(localhost|127\.)/.test(location.hostname);
+  const inp=h('input',{class:'inp',value:url,readOnly:true,onfocus:e=>e.target.select()});
+  const ov=h('div',{class:'ov',onclick:e=>{if(e.target===ov)ov.remove()}},h('div',{class:'panel'},
+    h('h2',{},'分享給抽籤的人'),inp,
+    h('div',{class:'acts'},
+      h('button',{class:'btn pri',onclick:async()=>{try{await navigator.clipboard.writeText(inp.value);toast('已複製網址')}catch{inp.select();toast('請手動複製')}}},'複製網址'),
+      h('button',{class:'btn',onclick:()=>ov.remove()},'關閉')),
+    local?h('p',{class:'badge'},'⚠ 你現在是在本機開啟，這不是公開網址。上傳到 GitHub Pages 後，請從線上的 admin.html 再按一次分享。'):null,
+    h('p',{class:'badge'},'此網址是抽籤頁，對方只能抽籤。修改籤的內容後，要「匯出 data.json」並上傳到 GitHub 覆蓋舊檔，對方才看得到新的籤。')));
+  document.body.append(ov);
+}
+
+function render(){
+  let img='';
+  const prev=h('img',{class:'thumb',hidden:true,alt:''}),ph=h('div',{class:'thumb ph'},'無圖片');
+  const file=h('input',{type:'file',accept:'image/*',hidden:true,onchange:async e=>{
+    const f=e.target.files[0];if(!f)return;
+    try{img=await shrink(f);prev.src=img;prev.hidden=false;ph.hidden=true}catch{toast('圖片讀取失敗')}
+    e.target.value='';
+  }});
+  const txt=h('textarea',{class:'inp',rows:3,placeholder:'籤上的文字（可留空，只放圖片）'});
+  stEl=h('span',{class:'badge'},'');
+  const imp=h('input',{type:'file',accept:'.json,application/json',hidden:true,onchange:async e=>{
+    const f=e.target.files[0];if(!f)return;
+    try{const d=JSON.parse(await f.text());if(!valid(d))throw 0;draft=d;save();render();toast('已匯入')}catch{toast('檔案格式不正確')}
+  }});
+
+  const list=h('div',{class:'stack'});
+  draft.slips.forEach((s,i)=>{
+    const th=h('div',{});
+    const showImg=()=>th.replaceChildren(s.img?h('img',{class:'thumb',src:s.img,alt:''}):h('div',{class:'thumb ph'},'無圖片'));showImg();
+    const f=h('input',{type:'file',accept:'image/*',hidden:true,onchange:async e=>{const x=e.target.files[0];if(!x)return;try{s.img=await shrink(x);showImg();save()}catch{toast('圖片讀取失敗')}e.target.value=''}});
+    const del=h('button',{class:'btn del',onclick:e=>{
+      if(!e.target.dataset.arm){e.target.dataset.arm=1;e.target.textContent='確定刪除？';setTimeout(()=>{delete e.target.dataset.arm;e.target.textContent='刪除'},2500);return}
+      draft.slips.splice(i,1);save();render();
+    }},'刪除');
+    list.append(h('div',{class:'panel'},h('div',{class:'row'},th,h('div',{class:'grow'},
+      h('textarea',{class:'inp',rows:2,value:s.text||'',placeholder:'籤上的文字',oninput:e=>{s.text=e.target.value;saveSoon()}}),
+      h('div',{class:'acts'},
+        h('button',{class:'btn',onclick:()=>f.click()},s.img?'更換圖片':'加圖片'),
+        s.img?h('button',{class:'btn',onclick:()=>{s.img='';showImg();save();render()}},'移除圖片'):null,
+        del)),f)));
+  });
+
+  app.replaceChildren(
+    h('header',{},h('h1',{},'抽籤後台'),h('a',{class:'btn',href:'index.html',target:'_blank'},'看抽籤頁')),
+    h('div',{class:'stack'},
+      h('div',{class:'bar'},
+        h('button',{class:'btn pri',onclick:exportJson},'匯出 data.json'),
+        h('button',{class:'btn',onclick:()=>{save();window.open('index.html?preview=1','_blank')}},'預覽（含未上傳的變更）'),
+        h('button',{class:'btn',onclick:openShare},'分享網址')),
+      h('div',{class:'bar'},
+        h('button',{class:'btn',onclick:()=>imp.click()},'匯入 data.json'),
+        h('button',{class:'btn',onclick:reloadOnline},'從線上 data.json 重新載入'),stEl,imp),
+      h('div',{class:'panel'},h('h2',{},'籤筒名稱'),
+        h('input',{class:'inp',value:draft.title||'',maxLength:30,oninput:e=>{draft.title=e.target.value;saveSoon()}})),
+      h('div',{class:'panel'},h('h2',{},'新增一支籤'),h('div',{class:'row'},
+        h('div',{},prev,ph),
+        h('div',{class:'grow'},txt,h('div',{class:'acts'},
+          h('button',{class:'btn',onclick:()=>file.click()},'選擇圖片'),
+          h('button',{class:'btn pri',onclick:()=>{
+            if(!txt.value.trim()&&!img){toast('請至少放一張圖片或一段文字');return}
+            draft.slips.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),text:txt.value.trim(),img});
+            save();render();
+          }},'新增這支籤'))),file)),
+      h('h2',{class:'mut',style:'font-size:1rem;margin:4px 0 0'},`目前共 ${draft.slips.length} 支籤`),
+      list));
+}
+
+try{const t=localStorage.getItem(KEY);if(t)draft=JSON.parse(t)}catch{}
+if(!valid(draft)){try{draft=await (await fetch('data.json?t='+Date.now())).json()}catch{}}
+if(!valid(draft))draft={title:'我的籤筒',slips:[]};
+render();
+})();
+</script>
+</body>
+</html>
